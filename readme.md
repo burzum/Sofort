@@ -1,6 +1,6 @@
 # Sofortüberweisung Payment Processor
 
-Sofortueberweisung.de Payment processor plugin for the CakePHP Cart Plugin http://github.com/burzum/Cart
+Sofortueberweisung.de Payment Processor Plugin based on the standard payments lib
 
 ## Requirements
 
@@ -13,9 +13,28 @@ This plugin is based on the standard Payments lib, you'll need it.
 
 	git clone
 
+### Configuration
+
 	$config = array(
 		'Sofort' => array(
 		 	'apiKey' => 'YOUR-API-KEY'));
+
+### Usage
+
+The following fields are required by this processor to be set for the actions:
+
+Read the Payments plugin readme.md how to set fields.
+
+### Pay:
+
+ * amount
+ * payment_reason'
+
+### Refund
+
+ * sender_account_bic
+ * sender_account_iban
+ * sender_account_holder
 
 ## License ##
 
