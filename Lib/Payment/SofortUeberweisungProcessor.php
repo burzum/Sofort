@@ -1,5 +1,5 @@
 <?php
-App::uses('BasePaymentProcessor', 'Cart.Lib/Payment');
+App::uses('BasePaymentProcessor', 'Payments.Lib/Payment');
 require_once(CakePlugin::path('Sofort') . 'Vendor' . DS . 'SofortLib' . DS . 'library' . DS . 'sofortLib.php');
 
 /**
@@ -10,11 +10,39 @@ require_once(CakePlugin::path('Sofort') . 'Vendor' . DS . 'SofortLib' . DS . 'li
  * @license LGPL v3
  */
 class SofortUeberweisungProcessor extends BasePaymentProcessor {
+
+/**
+ * SofortLib_Multipay instance
+ *
+ * @var SofortLib_Multipay
+ */
+	public $MultiPay = null;
+
+/**
+ * Values to be used by the API implementation
+ *
+ * Structure of the array is:
+ * MethodName/VariableName/OptionsArray
+ *
+ * @var array
+ */
+	protected $_fields = array(
+		'pay' => array(
+			'amount' => array(
+				'required' => true,
+				'type' => array('integer', 'float', 'string')),
+			'payment_reason' => array(
+				'required' => true,
+				'type' => array('string')
+			),
+		),
+	);
+
 /**
  * Constructor
  *
  * @param array $options
- * @return \SofortUeberweisungProcessor
+ * @return SofortUeberweisungProcessor
  */
 	public function __construct($options = array()) {
 		parent::__construct($options);
@@ -23,20 +51,30 @@ class SofortUeberweisungProcessor extends BasePaymentProcessor {
 	}
 
 /**
+ * Configures the Multipay instance with the correct callback urls and makes it
+ * available as $this->Multipay
  *
+ * @return void
  */
-	protected function _getApiInstance() {
+	protected function _getMultipayInstance() {
 		$this->Multipay = new SofortLib_Multipay($this->configKey);
-		$this->Multipay->setNotificationUrl(Router::url($this->callbackUrl, true));
-		$this->Multipay->setAbortUrl(Router::url($this->cancelUrl, true));
-		$this->Multipay->setSuccessUrl(Router::url($this->finishUrl, true));
+		$this->Multipay->setNotificationUrl($this->callbackUrl);
+		$this->Multipay->setAbortUrl($this->cancelUrl);
+		$this->Multipay->setSuccessUrl($this->finishUrl);
 	}
 
 /**
+ * Method to initialize the payment
  *
+ * @param float $amount
+ * @param array $options
+ * @return void
  */
-	public function pay($order) {
-		$this->_ueberweisung($order);
+	public function pay($amount, array $options = array()) {
+		$this->set('amount', (float) $amount);
+		$this->validateFields('pay');
+
+		$this->_ueberweisung($amount);
 	}
 
 /**
@@ -50,23 +88,23 @@ class SofortUeberweisungProcessor extends BasePaymentProcessor {
 /**
  * Notification callback
  *
- * @param array $order
+ * @param array $options
  * @return boolean
  */
-	public function parseNotification($order) {
+	public function notificationCallback(array $options) {
 		$sofort = new SofortLib_Notification();
 
 		if ($sofort->isError()) {
-			$this->log($sofort->getErrors(), 'payment-error');
+			$this->log($sofort->getErrors(), PaymentApILog::ERROR);
 			return false;
 		}
 
 		if ($sofort->isWarning()) {
-			$this->log($sofort->getWarnings(), 'payment-warning');
+			$this->log($sofort->getWarnings(), PaymentApILog::WARNING);
 		}
 
 		$transactionId = $sofort->getNotification();
-		$this->log($transactionId, 'payment-debug');
+		$this->log($transactionId, PaymentApILog::DEBUG);
 
 		$sofort = new SofortLib_TransactionData($this->configKey);
 		$sofort->setTransaction($transactionId)->sendRequest();
@@ -74,35 +112,43 @@ class SofortUeberweisungProcessor extends BasePaymentProcessor {
 		$status = $sofort->getStatus();
 
 		if ($status == 'pending') {
-			$order[$this->OrderModel->alias]['payment_status'] = 'pending';
-			$order[$this->OrderModel->alias]['status'] = 'complete';
+			return PaymentStatus::PENDING;
 		}
 
 		if ($status == 'received') {
-			$order[$this->OrderModel->alias]['payment_status'] = 'received';
+			return PaymentStatus::SUCCESS;
 		}
+	}
 
-		return $this->OrderModel->save($order);
+/**
+ * Cancels a payment
+ *
+ * @param string $paymentReference
+ * @param array $options
+ * @return mixed
+ */
+	public function cancel($paymentReference, array $options) {
+
 	}
 
 /**
  *
  */
-	protected function _ueberweisung($order) {
-		$this->_getApiInstance();
+	protected function _ueberweisung() {
+		$this->_getMultipayInstance();
 
 		$this->Multipay->setSofortueberweisung();
-		$this->Multipay->setAmount($order['Order']['total']);
-		$this->Multipay->setReason($order['Order']['id'], $order['Order']['user_id']);
+		$this->Multipay->setAmount($this->field('amount'));
+		$this->Multipay->setReason($this->field('payment_reason'), $this->field('payment_reason2'));
 		$this->Multipay->sendRequest();
 
 		if ($this->Multipay->isError()) {
-			$this->log($this->Multipay->getErrors(), 'payment-error');
+			$this->log($this->Multipay->getErrors(), PaymentApiLog::ERROR);
 			throw new PaymentApiException(__d('sofort', 'An error occurred please contact the shop owner.'));
 		}
 
 		if ($this->Multipay->isWarning()) {
-			$this->log($this->Multipay->getWarnings(), 'payment-warning');
+			$this->log($this->Multipay->getWarnings(), PaymentApiLog::WARNING);
 		}
 
 		$this->redirect($this->Multipay->getPaymentUrl());
@@ -111,16 +157,30 @@ class SofortUeberweisungProcessor extends BasePaymentProcessor {
 /**
  * Refund money
  *
+ * @param $paymentReference
  * @param float $amount
  * @param string $comment
- * @param array $order
+ * @param array $options
  * @return mixed
- * @todo finish me
  */
-	public function refund($amount, $comment, $order) {
+	public function refund($paymentReference, $amount, $comment = '', array $options) {
+		$this->set('amount', $amount);
+		$this->set('comment', $comment);
+		$this->set('payment_reference', $paymentReference);
+		$this->validateFields();
+
 		$sofort = new SofortLib_Refund($this->configKey);
-		$sofort->addRefund($order['Order']['payment_reference'], $amount, $comment);
-		$sofort->setSenderAccount('12345678', '12345678', 'Iam Holder of this Account');
+
+		$sofort->addRefund(
+			$this->_fields['payment_reference'],
+			$this->_fields['amount'],
+			$this->_fields['comment']);
+
+		$sofort->setSenderAccount(
+			$this->_fields['sender_account_bic'],
+			$this->_fields['sender_account_iban'],
+			$this->_fields['sender_account_holder']);
+
 		$sofort->sendRequest();
 	}
 
@@ -134,37 +194,37 @@ class SofortUeberweisungProcessor extends BasePaymentProcessor {
 	public function status($status, $reason) {
 		if ($status == 'loss' && $reason == 'complaint') {
 			$message = __d('sofort', 'Der Käuferschutz wurde in Anspruch genommen.');
-			$status = 'failed';
+			$status = PaymentStatus::FAILED;
 		}
 
 		if ($status == 'loss' && $reason == 'not_credited') {
 			$message = __d('sofort', 'Das Geld ist nicht eingegangen..');
-			$status = 'failed';
+			$status = PaymentStatus::FAILED;
 		}
 
 		if ($status == 'pending' && $reason == 'not_credited_yet') {
 			$message = __d('sofort', 'Das Geld ist noch nicht eingegangen..');
-			$status = 'pending';
+			$status = PaymentStatus::PENDING;
 		}
 
 		if ($status == 'received' && $reason == 'consumer_protection') {
 			$message = __d('sofort', 'Das Geld ist auf dem Treuhandkonto eingegangen.');
-			$status = 'finished';
+			$status = PaymentStatus::SUCCESS;
 		}
 
 		if ($status == 'received' && $reason == 'credited') {
 			$message = __d('sofort', 'Das Geld ist eingegangen.');
-			$status = 'finished';
+			$status = PaymentStatus::SUCCESS;
 		}
 
 		if ($status == 'refunded' && $reason == 'compensation') {
 			$message = __d('sofort', 'Das Geld wurde zurückerstattet (Teilrückbuchung).');
-			$status = 'refunded';
+			$status = PaymentStatus::PARTIAL_REFUNDED;
 		}
 
 		if ($status == 'refunded' && $reason == 'refunded') {
 			$message = __d('sofort', 'Das Geld wurde zurückerstattet (komplette Rückbuchung des Gesamtbetrags).');
-			$status = 'refunded';
+			$status = PaymentStatus::REFUNDED;
 		}
 
 		return compact($status, $message);
