@@ -11,30 +11,42 @@ This plugin is based on the standard Payments lib, you'll need it.
 
 ## Setup ##
 
-	git clone
+Clone from github
 
-### Configuration
+	git clone git://github.com/burzum/Sofort.git
 
-	$config = array(
-		'Sofort' => array(
-		 	'apiKey' => 'YOUR-API-KEY'));
+## Usage
 
-### Usage
+Configure a live API connection
 
-The following fields are required by this processor to be set for the actions:
+	$Config = new PaymentProcessorConfig(array(
+		'apiKey' => 'YOU-SOFORT-API-KEY');
+	$Processor = new SofortUeberweisungProcessor($Config, 'default');
 
-Read the Payments plugin readme.md how to set fields.
+Configure sandbox API connection
 
-### Pay:
+	$Config = new PaymentProcessorConfig(array(
+		'apiKey' => 'YOU-SOFORT-API-KEY');
+	$Processor = new SofortUeberweisungProcessor($Config, 'default', true);
 
- * amount
- * payment_reason'
+## Processing payment actions
+
+### Pay
+
+Payments require a primary reason to be set and an secondary optionally set
+
+	$Processor->set('payment_reason', 'Order 123'); // required
+	$Processor->set('payment_reason2', 'Something here'); // optional
+	$Processor->pay(15.99);
 
 ### Refund
 
- * sender_account_bic
- * sender_account_iban
- * sender_account_holder
+Sofort Refund requires you to set a bank account, usually the one that received the money before, to send the money from back to the buyer.
+
+	$Processor->set('sender_account_bic', 'Order 123'); // required
+	$Processor->set('sender_account_iban', 'Something here'); // required
+	$Processor->set('sender_account_holder', 'Something here'); // required
+	$Processor->refund(null, 15.99, 'My comment');
 
 ## License ##
 
