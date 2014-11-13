@@ -1,5 +1,9 @@
 # Sofortüberweisung Payment Processor
 
+Discontinued. Go for another lib like https://github.com/thephpleague/omnipay. I would prefer the architecture of this CakePHP plugin but maintaining this code alone is far beyond my available free time.
+
+---
+
 Sofortueberweisung.de Payment Processor Plugin based on the standard payments lib
 
 ## Requirements
